@@ -11,6 +11,10 @@
 
 DWORD GetProcessModuleBaseAddr(DWORD dwProcessId);
 DWORD GetProcessModuleSize(DWORD dwProcessId);
+void XorEncryptAAA(char* p_data,DWORD EncryptSize);
+void XorDecodeAAA(char* p_data,DWORD EncryptSize);
+
+	
 
 void __cdecl OutputDebugStringF(const char *format, ...);
 #ifdef _DEBUG  

@@ -6,6 +6,7 @@
 #include "Tools.h"
 #include <STDIO.H>
 #include<Tlhelp32.h>
+#define KEY 0x86
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
@@ -71,4 +72,21 @@ DWORD GetProcessModuleSize(DWORD dwProcessId){
     // ¹Ø±Õ¾ä±ú
     CloseHandle(hModuleSnap);
     return ProcessImageBase;
+}
+
+
+void XorEncryptAAA(char* p_data,DWORD EncryptSize)
+{
+    for(DWORD i = 0; i < EncryptSize; i++)
+    {
+		p_data[i] = p_data[i] ^ KEY;
+    }
+}
+
+void XorDecodeAAA(char* p_data,DWORD DecodeSize)
+{   
+    for(DWORD i = 0; i < DecodeSize; i++)
+    {
+		p_data[i] = p_data[i] ^ KEY;
+    }	
 }

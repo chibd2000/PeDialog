@@ -5,8 +5,6 @@
 #include "resource.h"
 #include "Tools.h"
 #include "Petools.h"
-#include<STDIO.H>
-#include<STDLIB.H>
 #include<commctrl.h>
 #include<commdlg.h>	
 #include<Tlhelp32.h>
@@ -15,6 +13,9 @@
 
 HINSTANCE hAppHinstance;
 TCHAR* pFileStr;
+HWND hShellEdit1;
+HWND hShellEdit2;
+	
 
 BOOL CALLBACK DialogProc(HWND hwndDlg,UINT uMsg, WPARAM wParam, LPARAM lParam);
 BOOL CALLBACK AboutProc(HWND hwndDlg,UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -27,6 +28,7 @@ BOOL CALLBACK PeDireResourceProc(HWND hwndDlg,UINT uMsg, WPARAM wParam, LPARAM l
 BOOL CALLBACK PeDireRelocationProc(HWND hwndDlg,UINT uMsg, WPARAM wParam, LPARAM lParam);
 BOOL CALLBACK PeDireIATProc(HWND hwndDlg,UINT uMsg, WPARAM wParam, LPARAM lParam);
 BOOL CALLBACK PeDireBoundProc(HWND hwndDlg,UINT uMsg, WPARAM wParam, LPARAM lParam);
+BOOL CALLBACK PeShellProc(HWND hwndDlg,UINT uMsg, WPARAM wParam, LPARAM lParam);
 void InitModuleRow(HWND hwndDlg, DWORD dwProcessPid);
 void InitProcessRow(HWND hwndDlg);
 void InitProcessColumn(HWND hwndDlg);
@@ -39,6 +41,7 @@ void InitResourceTable(HWND hwndDlg);
 void InitRelocationTable(HWND hwndDlg);
 void InitBoundTable(HWND hwndDlg);
 void InitIATTable(HWND hwndDlg);
+void AddWaterShell();
 
 int APIENTRY WinMain(HINSTANCE hInstance,
                      HINSTANCE hPrevInstance,
@@ -268,7 +271,7 @@ void EnumModules(HWND hwndDlg, WPARAM wParam,LPARAM lParam){
 	lv.pszText = szPid; // buffer
 	lv.cchTextMax = 0x20; // size
 	SendMessage(hListProcess,LVM_GETITEMTEXT, dwRowId, (DWORD)&lv);
-	MessageBox(NULL,szPid,"PROCESS PID",MB_OK);
+	//MessageBox(NULL,szPid,"PROCESS PID",MB_OK);
 	
 	InitModuleRow(hwndDlg,atoi(szPid));
 	
@@ -785,12 +788,7 @@ void InitRelocationTable(HWND hwndDlg){
 	
 	pRelocationDirectory = (PIMAGE_BASE_RELOCATION)((DWORD)pFileBuffer+(DWORD)FOA); //定位第一张重定位表 文件中的地址
 	
-	while(pRelocationDirectory->SizeOfBlock && pRelocationDirectory->VirtualAddress){
-		//printf("VirtualAddress    :%08X\n", pRelocationDirectory->VirtualAddress);
-		//printf("SizeOfBlock       :%08X\n", pRelocationDirectory->SizeOfBlock);
-		//printf("================= BlockData Start ======================\n");
-		
-		
+	while(pRelocationDirectory->SizeOfBlock && pRelocationDirectory->VirtualAddress){		
 		NumberOfRelocation = (pRelocationDirectory->SizeOfBlock - 8)/2;// 每个重定位块中的数据项的数量
 
 		DbgPrintf("%d",NumberOfRelocation);
@@ -926,34 +924,38 @@ void InitIATTable(HWND hwndDlg){
 
 	//继续如上操作进行打印操作
 	//这里打印的是iat表
-	
+
 	//获取导入表的位置
 	RVA_TO_FOA(pFileBuffer,pOptionHeader->DataDirectory[1].VirtualAddress,&FOA);
 	
 	//每个导入表的相关信息占20个字节
 	pIMPORT_DESCRIPTOR = (PIMAGE_IMPORT_DESCRIPTOR)((DWORD)pFileBuffer + (DWORD)FOA);
 
-	RVA_TO_FOA(pFileBuffer,pIMPORT_DESCRIPTOR->FirstThunk,&FOA);
-	
-	FirstThunk_IAT = (PDWORD)((DWORD)pFileBuffer + (DWORD)FOA);
-	
-	while(*FirstThunk_IAT){
-		if((*FirstThunk_IAT) & 0X80000000){
-			//高位为1 则 除去最高位的值就是函数的导出序号
-			Original = *FirstThunk_IAT & 0xFFF;	//去除最高标志位。
-			wsprintf(szTempBuffer,"\r\n按序号导入: %d \r\n", Original);
-		}else{
-			//高位不为1 则指向IMAGE_IMPORT_BY_NAME
-			RVA_TO_FOA(pFileBuffer,*FirstThunk_IAT,&FOA);
-			pImage_IMPORT_BY_NAME = (PIMAGE_IMPORT_BY_NAME)((DWORD)pFileBuffer + FOA);
-			DbgPrintf("%s",pImage_IMPORT_BY_NAME->Name);
-			strcpy(FunctionName,(PCHAR)pImage_IMPORT_BY_NAME->Name);
-			wsprintf(szTempBuffer, "\r\n按函数名导入 函数名为: %s \r\n",FunctionName);
-		}
+	while(pIMPORT_DESCRIPTOR->FirstThunk && pIMPORT_DESCRIPTOR->OriginalFirstThunk){
+
+		RVA_TO_FOA(pFileBuffer,pIMPORT_DESCRIPTOR->FirstThunk,&FOA);
 		
-		FirstThunk_IAT++;
-		//DbgPrintf("%s",szTempBuffer);
-		strcat(szBuffer,szTempBuffer);
+		FirstThunk_IAT = (PDWORD)((DWORD)pFileBuffer + (DWORD)FOA);
+		
+		while(*FirstThunk_IAT){
+			if((*FirstThunk_IAT) & 0X80000000){
+				//高位为1 则 除去最高位的值就是函数的导出序号
+				Original = *FirstThunk_IAT & 0xFFF;	//去除最高标志位。
+				wsprintf(szTempBuffer,"\r\n按序号导入: %d \r\n", Original);
+			}else{
+				//高位不为1 则指向IMAGE_IMPORT_BY_NAME
+				RVA_TO_FOA(pFileBuffer,*FirstThunk_IAT,&FOA);
+				pImage_IMPORT_BY_NAME = (PIMAGE_IMPORT_BY_NAME)((DWORD)pFileBuffer + FOA);
+				DbgPrintf("%s",pImage_IMPORT_BY_NAME->Name);
+				strcpy(FunctionName,(PCHAR)pImage_IMPORT_BY_NAME->Name);
+				wsprintf(szTempBuffer, "\r\n按函数名导入 函数名为: %s \r\n",FunctionName);
+			}
+			
+			FirstThunk_IAT++;
+			//DbgPrintf("%s",szTempBuffer);
+			strcat(szBuffer,szTempBuffer);
+		}
+		pIMPORT_DESCRIPTOR++;
 	}
 
 	SetWindowText(hEditIAT, szBuffer);
@@ -985,7 +987,10 @@ BOOL CALLBACK DialogProc(HWND hwndDlg,UINT uMsg,WPARAM wParam,LPARAM lParam){
 			}                        
 		case IDC_BUTTON_EXIT:                            
 			EndDialog(hwndDlg, 0);                        
-			return TRUE;     
+			return TRUE;   
+		case IDC_BUTTON_ADD_SHELL:
+			DialogBox(hAppHinstance,MAKEINTRESOURCE(IDD_DIALOG_PE_SHELL),hwndDlg,PeShellProc);
+			return TRUE;
 		case IDC_BUTTON_PE:
 			ZeroMemory(&ofn, sizeof(ofn));
 			ofn.lStructSize = sizeof(OPENFILENAME);
@@ -1248,3 +1253,227 @@ BOOL CALLBACK PeDireBoundProc(HWND hwndDlg,UINT uMsg, WPARAM wParam, LPARAM lPar
 	return FALSE;
 }
 
+
+BOOL CALLBACK PeShellProc(HWND hwndDlg,UINT uMsg, WPARAM wParam, LPARAM lParam){
+	OPENFILENAME ofn;
+	TCHAR szFileBuffer[MAX_PATH];
+	memset(szFileBuffer, 0, MAX_PATH);
+
+	switch (uMsg)
+	{
+		
+	case WM_INITDIALOG:
+		return TRUE;
+
+	case WM_COMMAND:
+		switch (LOWORD (wParam)){
+		case IDC_SHELL_BUTTON2:
+			hShellEdit1 = GetDlgItem(hwndDlg, IDC_SHELL_EDIT1);
+			ZeroMemory(&ofn, sizeof(ofn));
+			ofn.lStructSize = sizeof(OPENFILENAME);
+			ofn.hwndOwner = hwndDlg;
+			ofn.lpstrFile = szFileBuffer;
+			ofn.nMaxFile = sizeof(szFileBuffer);
+			ofn.lpstrFilter = "*.exe";
+			ofn.lpstrFileTitle = NULL;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+			
+			if (GetOpenFileName(&ofn)) {
+				SetWindowText(hShellEdit1, ofn.lpstrFile);
+			}
+			
+			return TRUE;
+
+		case IDC_SHELL_BUTTON3:
+			hShellEdit2 = GetDlgItem(hwndDlg, IDC_SHELL_EDIT2);
+			ZeroMemory(&ofn, sizeof(ofn));
+			ofn.lStructSize = sizeof(OPENFILENAME);
+			ofn.hwndOwner = hwndDlg;
+			ofn.lpstrFile = szFileBuffer;
+			ofn.nMaxFile = sizeof(szFileBuffer);
+			ofn.lpstrFilter = "*.exe";
+			ofn.lpstrFileTitle = NULL;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+			
+			if (GetOpenFileName(&ofn)) {
+				SetWindowText(hShellEdit2, ofn.lpstrFile);
+			}
+
+			return TRUE;
+		case IDC_BUTTON1:
+			//加壳操作
+			AddWaterShell();
+			return TRUE;
+
+		}
+		
+		return TRUE;
+		
+	case WM_CLOSE:
+		EndDialog(hwndDlg,0);
+		return TRUE;
+	}
+	return FALSE;
+}
+
+
+void GetSrcFromShell(PVOID pFileBufferNewShell, PVOID* FileBufferNewSrc){
+	PIMAGE_DOS_HEADER pDosHeader = NULL;    
+    PIMAGE_NT_HEADERS pNTHeader = NULL; 
+    PIMAGE_FILE_HEADER pPEHeader = NULL;    
+    PIMAGE_OPTIONAL_HEADER32 pOptionHeader = NULL;  
+    PIMAGE_SECTION_HEADER pSectionHeader = NULL;
+
+		
+	pDosHeader = (PIMAGE_DOS_HEADER)pFileBufferNewShell;
+    pNTHeader = (PIMAGE_NT_HEADERS)((DWORD)pFileBufferNewShell+pDosHeader->e_lfanew);
+    pPEHeader = (PIMAGE_FILE_HEADER)(((DWORD)pNTHeader) + 4);  
+    pOptionHeader = (PIMAGE_OPTIONAL_HEADER32)((DWORD)pPEHeader+IMAGE_SIZEOF_FILE_HEADER); 
+	pSectionHeader = (PIMAGE_SECTION_HEADER)((DWORD)pOptionHeader + IMAGE_SIZEOF_NT_OPTIONAL_HEADER);
+
+	// (1) 定为到SHELL文件的最后一个节	
+	*FileBufferNewSrc = (PVOID)((DWORD)pFileBufferNewShell + (PIMAGE_SECTION_HEADER)pSectionHeader[pPEHeader->NumberOfSections-1].PointerToRawData);
+}
+
+
+
+
+void AddWaterShell(){
+	//--------------------------------------加密过程--------------------------------------
+	TCHAR szBufferSrc[MAX_PATH];
+	TCHAR szBufferShell[MAX_PATH];
+	TCHAR* szBufferNew;
+
+	memset(szBufferSrc,0,MAX_PATH);
+	memset(szBufferShell,0,MAX_PATH);
+
+	PVOID pFileBufferSrc = NULL;
+	PVOID pFileBufferShell = NULL;
+
+	PVOID pFileNewBufferShell = NULL;
+
+	DWORD dwBufferLengthSrc = 0;
+	DWORD dwBufferLengthShell = 0;
+
+	GetWindowText(hShellEdit1,szBufferShell,MAX_PATH); // shell file 
+	GetWindowText(hShellEdit2,szBufferSrc,MAX_PATH); // shell file 
+
+	MyReadFile(&pFileBufferSrc,&dwBufferLengthSrc,szBufferSrc); //src
+
+	XorEncryptAAA((char*)pFileBufferSrc,dwBufferLengthSrc);
+
+	MyReadFile(&pFileBufferShell,&dwBufferLengthShell,szBufferShell);// shell 
+
+	ShellAddNewSectionAndData(pFileBufferShell, &dwBufferLengthShell, &pFileNewBufferShell, pFileBufferSrc, dwBufferLengthSrc); // (1) 定为到SHELL文件的最后一个节	
+	
+	szBufferNew = &szBufferShell[0];
+	strcat(szBufferNew, ".exe");
+
+	MyWriteFile(pFileNewBufferShell,dwBufferLengthShell, szBufferNew);
+	//--------------------------------------加密过程--------------------------------------
+
+	/*
+	//--------------------------------------解密过程--------------------------------------
+	// 1、读取shell的数据
+	PVOID pFileBufferNewShell = NULL;
+	DWORD dwBufferLengthNewShell = 0;
+	MyReadFile(&pFileBufferNewShell,&dwBufferLengthNewShell,szBufferNew);
+
+	// 2、获取源文件的数据 解密
+	PVOID pFileBufferNewSrc = NULL;	
+	GetSrcFromShell(pFileBufferNewShell, &pFileBufferNewSrc);
+	XorEncryptAAA((char*)pFileBufferNewSrc,dwBufferLengthSrc);
+
+	DWORD dwSrcSizeOfImage = GetSizeOfImage(pFileBufferNewSrc);
+	DWORD dwSrcImageBase = GetImageBase(pFileBufferNewSrc);
+
+	// 3、拉伸PE  pImageBufferNewSrc
+	PVOID pImageBufferNewSrc = NULL;
+	CopyFileBufferToImageBuffer(pFileBufferNewSrc,&pImageBufferNewSrc);
+
+	// 4、以挂起方式运行壳程序进程
+	STARTUPINFO si;
+	PROCESS_INFORMATION pi;
+	CONTEXT cont;
+	GetThreadContext(pi.hThread, &cont);
+
+	si.cb = sizeof(STARTUPINFO);
+	::CreateProcess(szBufferShell,NULL,NULL,NULL,NULL,CREATE_SUSPENDED, NULL,NULL,&si,&pi);
+
+	DWORD dwImageBase = GetImageBase(pFileBufferShell);
+
+	//5、卸载外壳程序的文件镜像
+	typedef long NTSTATUS;
+	typedef NTSTATUS(__stdcall *pfnZwUnmapViewOfSection)(HANDLE ProcessHandle, LPVOID BaseAddress);
+
+	pfnZwUnmapViewOfSection ZwUnmapViewOfSection = NULL;
+	HMODULE hModule = LoadLibrary("ntdll.dll");
+	if(hModule){
+		ZwUnmapViewOfSection = (pfnZwUnmapViewOfSection)GetProcAddress(hModule, "ZwUnmapViewOfSection");
+		if(ZwUnmapViewOfSection)
+			ZwUnmapViewOfSection(pi.hProcess, (PVOID)dwImageBase);
+		FreeLibrary(hModule);
+	}
+
+
+
+	//6、在指定的位置(src的ImageBase)申请指定大小(src的SizeOfImage)的内存(VirtualAllocEx)
+	LPVOID status = NULL;
+	status = VirtualAllocEx(pi.hProcess, (LPVOID)dwSrcImageBase,dwSrcSizeOfImage,MEM_RESERVE | MEM_COMMIT,PAGE_EXECUTE_READWRITE);
+	if(status != NULL){
+		//7、如果成功，将Src的PE文件拉伸 复制到该空间中
+		WriteProcessMemory(pi.hProcess, (LPVOID)dwSrcImageBase, pImageBufferNewSrc, dwSrcSizeOfImage, NULL);
+	}else{
+		//8、如果申请空间失败，但有重定位表：在任意位置申请空间，然后将PE文件拉伸、复制、修复重定位表。
+		PIMAGE_BASE_RELOCATION pRelocationDirectory = NULL;
+		DWORD NumberOfRelocation;
+		PWORD Location;
+		DWORD RVA_Data;
+		WORD reloData;
+		DWORD FOA;
+		DWORD TempImageBase = 0x11111111;
+		pRelocationDirectory = GetRelocationTable(pFileBufferNewSrc);
+		if(pRelocationDirectory->VirtualAddress){
+			ChangesImageBase(pFileBufferNewSrc, TempImageBase);
+
+			WriteProcessMemory(pi.hProcess, (LPVOID)dwSrcImageBase, pImageBufferNewSrc, dwSrcSizeOfImage, NULL);
+			
+			while(pRelocationDirectory->SizeOfBlock && pRelocationDirectory->VirtualAddress){				
+				NumberOfRelocation = (pRelocationDirectory->SizeOfBlock - 8)/2;// 每个重定位块中的数据项的数量
+				Location = (PWORD)((DWORD)pRelocationDirectory + 8); // 加上8个字节
+				for(DWORD i=0;i<NumberOfRelocation;i++){
+					if(Location[i] >> 12 != 0){ //判断是否是垃圾数据
+						// WORD类型的变量进行接收
+						reloData = (Location[i] & 0xFFF); //这里进行与操作 只取4字节 二进制的后12位
+						RVA_Data = pRelocationDirectory->VirtualAddress + reloData; //这个是RVA的地址
+						RVA_TO_FOA(pFileBufferNewSrc,RVA_Data,&FOA);
+						//这里是自增的 进行修复重定位，上面的Imagebase我们自增了1000，那么要修复的地址都需要自增1000
+						*(PDWORD)((DWORD)pFileBufferNewSrc+(DWORD)FOA) = *(PDWORD)((DWORD)pFileBufferNewSrc+(DWORD)FOA) + TempImageBase - dwSrcImageBase;	 // 任意位置 - Origin ImageBase			
+					}
+				}
+				pRelocationDirectory = (PIMAGE_BASE_RELOCATION)((DWORD)pRelocationDirectory + (DWORD)pRelocationDirectory->SizeOfBlock); //上面的for循环完成之后，跳转到下个重定位块 继续如上的操作
+			}
+
+			dwSrcImageBase = TempImageBase;
+		}else{
+			// 9、如果第6步申请空间失败，并且还没有重定位表，直接返回：失败.
+			return;	
+		}
+	}
+	
+	// 10、修改外壳程序的Context:
+    DWORD dwEntryPoint = GetOep(pFileBufferNewSrc);
+	dwImageBase = dwSrcImageBase;
+
+	cont.Eax = dwEntryPoint + dwImageBase;
+
+	char* baseAddress = (char*)cont.Ebx+8;
+	WriteProcessMemory(pi.hProcess, baseAddress, (LPVOID)dwImageBase,4, NULL);
+    SetThreadContext(pi.hThread, &cont);
+	//记得恢复线程
+    ResumeThread(pi.hThread);
+	*/
+}
+	   
